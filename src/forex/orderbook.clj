@@ -40,35 +40,35 @@
                    :qty (- (order :qty) fill-qty))]
     res))
 
+(defn get-next-order-and-book [book]
+  (let [first-entry (first book)]
+    (if first-entry
+      [first-entry (dissoc book (first first-entry))]
+      [nil book])))
+
 (defn match-order [book qty max-price dir-comp market?]
   ;returns a vector [remaining-qty fills filled-orders order-book]"
   ;returned order book doesn't have order to be matched, has all other
-  ;results of that order
-  (let [first-entry (first book)]
-    (if first-entry
-      (loop [fills [] changed-orders [] cur-entry first-entry 
-             cur-book (dissoc book (first first-entry)) rem-qty qty]
-        (let [[[cur-price cur-id] cur-order] cur-entry
-              cur-qty (cur-order :qty)
-              ts (get-timestamp)] 
-          (if (or (dir-comp max-price cur-price) market?)
-            (let [match-qty (min rem-qty cur-qty)
-                  fill {:qty match-qty :price cur-price :ts ts}
-                  new-fills (conj fills fill)
-                  match-order (update-match-order cur-order fill match-qty (< rem-qty cur-qty))
-                  new-changed-orders (conj changed-orders match-order)]
-              (cond (> rem-qty cur-qty)
-                    (let [next-entry (first cur-book)]
-                      (if next-entry
-                        (recur new-fills new-changed-orders next-entry
-                               (dissoc cur-book (first next-entry)) (- rem-qty cur-qty))
-                        [rem-qty fills new-changed-orders cur-book]))
-                    (= rem-qty cur-qty)
-                    [0 new-fills new-changed-orders cur-book]
-                    (< rem-qty cur-qty)
-                    [0 new-fills new-changed-orders (add-order match-order cur-book)]))
-            [rem-qty fills changed-orders cur-book])))
-      [qty [] [] book])))
+  ;effects of that order
+  (loop [fills [] changed-orders [] [cur-entry cur-book] (get-next-order-and-book book) rem-qty qty]
+    (if cur-entry 
+      (let [[[cur-price cur-id] cur-order] cur-entry
+            cur-qty (cur-order :qty)
+            ts (get-timestamp)] 
+        (if (or (dir-comp max-price cur-price) market?)
+          (let [match-qty (min rem-qty cur-qty)
+                fill {:qty match-qty :price cur-price :ts ts}
+                new-fills (conj fills fill)
+                match-order (update-match-order cur-order fill match-qty (< rem-qty cur-qty))
+                new-changed-orders (conj changed-orders match-order)]
+            (cond (> rem-qty cur-qty)
+                  (recur new-fills new-changed-orders (get-next-order-and-book cur-book) (- rem-qty cur-qty))
+                  (= rem-qty cur-qty)
+                  [0 new-fills new-changed-orders cur-book]
+                  (< rem-qty cur-qty)
+                  [0 new-fills new-changed-orders (add-order match-order cur-book)]))
+          [rem-qty fills changed-orders (add-order cur-order cur-book)]))
+      [rem-qty fills changed-orders cur-book])))
 
 (defn make-orderbook [to-ob-ch ob-mg-ch to-exec-ch mg-router-ch]
     (go-loop [bids (sorted-map-by (comp-order >))
@@ -95,8 +95,9 @@
           (let [[rem-qty fills changed-orders new-book] (match-order standing-book qty price dir-comp market?)
                 new-order (assoc msg
                                  :qty rem-qty
-                                 :totalfilled (- (msg :originalqty) rem-qty)
+                                 :totalfilled (- qty rem-qty)
                                  :fills fills)]
+            ;(println changed-orders)
             (if (> rem-qty 0)
               (case order-type
                 "limit" 
@@ -108,11 +109,14 @@
                            (if buy? new-book (add-order new-order asks))
                            (<! to-ob-ch)))
                 ("fok" "fill-or-kill") 
-                (do (go (>! ob-mg-ch [:place-resp req-id [(assoc new-order :qty 0) [] [] ;no changes or fills
+                (do (go (>! ob-mg-ch [:place-resp req-id [(assoc new-order 
+                                                                 :qty 0 :open false
+                                                                 :totalfilled 0 :fills []) 
+                                                          [] [] ;no changes or fills
                                                           bids asks]]))
                     (recur bids asks (<! to-ob-ch))) ;order killed, recur with original values
                 ("ioc" "immediate-or-cancel" "market")
-                (do (go (>! ob-mg-ch [:place-resp req-id [(assoc new-order :qty 0) changed-orders fills
+                (do (go (>! ob-mg-ch [:place-resp req-id [(assoc new-order :qty 0 :open false) changed-orders fills
                                                           (if buy? bids new-book)
                                                           (if buy? new-book asks)]]))
                     (go (>! to-exec-ch changed-orders))
