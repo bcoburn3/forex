@@ -3,8 +3,10 @@ Clone of [Stockfighter](https://www.stockfighter.io) server written in Clojure
 
 ## What is it?
 
-The beginnings of a server re-implementation for Stockfighter's trading levels.  Currently
-appears to be minimally functional running on localhost
+The beginnings of a server re-implementation for Stockfighter's trading levels.  Right now it implements all of the 
+HTTP Stockfighter trading API, documented at: [https://starfighter.readme.io](https://starfighter.readme.io).
+
+Websockets, position tracking and user will be implemented at some point in the future.
 
 ## How do I use it?
 
