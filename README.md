@@ -18,3 +18,10 @@ The easiest way to try it is:
   4. Use the API as you usually would at http://localhost:5000
 
 Currently no account verification is implemented, and the server is only minimally tested.
+
+## TODO
+
+  * Add websockets
+  * Add account authentication/verification
+  * Add score tracking
+  * Add some way to configure venues/symbols
