@@ -1,4 +1,4 @@
-(defproject forex "0.3.5"
+(defproject forex "0.3.15"
   :description "clone of www.stockfighter.io server"
   :url "https://github.com/bcoburn3/forex"
   :license {:name "MIT License"
