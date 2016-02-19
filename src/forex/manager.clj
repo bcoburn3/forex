@@ -38,9 +38,10 @@
 (defn update-bid-ask [quote bids asks]
   (let [[bid bidsize biddepth] (new-half-quote bids)
         [ask asksize askdepth] (new-half-quote asks)]
-    (assoc quote 
-           :bid bid :bidsize bidsize :biddepth biddepth
-           :ask ask :asksize asksize :askdepth askdepth)))
+    (into {} (filter second ;removes nil or false values
+                     (assoc quote 
+                            :bid bid :bidsize bidsize :biddepth biddepth
+                            :ask ask :asksize asksize :askdepth askdepth)))))
 
 (defn update-quote-trade [quote fills to-quote-ws-ch]
   (if (first fills)
@@ -114,7 +115,7 @@
                 (recur (alts! chans) all-orders accounts-ids ids-accounts
                        quote new-bids new-asks))))
         :quote-req
-        (do (go (>! mg-router-ch [req-id quote]))
+        (do (go (>! mg-router-ch [req-id (assoc quote :quotetime (get-timestamp))]))
             (recur (alts! chans) all-orders accounts-ids ids-accounts
                    quote bids asks))
         :orderbook-req
