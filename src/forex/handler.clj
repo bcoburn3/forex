@@ -30,9 +30,10 @@
 
 (defn cancel-order [req]
   (let [venue (-> req :params :venue)
-        symbol (-> req :params :stock)]
+        symbol (-> req :params :stock)
+        id (Integer/parseInt (-> req :params :id))]
     (with-channel req channel
-      (go (>! to-router-ch [:cancel-req (Integer/parseInt (-> req :params :id)) channel
+      (go (>! to-router-ch [:cancel-req id channel
                             venue symbol])))))
 
 (defn orderbook [req]
@@ -50,7 +51,7 @@
 (defn order-status [req]
   (let [venue (-> req :params :venue)
         symbol (-> req :params :stock)
-        id (-> req :params :id)]
+        id (Integer/parseInt (-> req :params :id))]
     (with-channel req channel
       (go (>! to-router-ch [:one-order-status-req id channel venue symbol])))))
 
@@ -151,7 +152,7 @@
   ;responsible for maintaining the mapping between response channels and request ids, so
   ;each message goes back to the correct client
   (let [chans [in-ch mg-router-ch error-ch]]
-    (go-loop [[msg ch] (alts! chans) next-id 0 id-chan {}] ;TODO:  add error chan here
+    (go-loop [[msg ch] (alts! chans) next-id 0 id-chan {} next-order-id 0] ;TODO:  add error chan here
       (cond
         (= ch in-ch) ;new api request
         (let [[req-type req ch & [r-venue r-symbol]] msg
@@ -159,30 +160,30 @@
               new-next-id (+ next-id 1)]
           (if (not (= r-venue venue))
             (do (send-error ch 404 (str "No venue exists with the symbol " r-venue))
-                (recur (alts! chans) next-id id-chan))
+                (recur (alts! chans) next-id id-chan next-order-id))
             (case req-type
               :place-req
               (do (if (not (= r-symbol symbol)) 
                     (send-error ch 404 (str "symbol " r-symbol " does not exist on venue " venue))
                     (if (validate-order req ch)
-                      (go (>! to-ob-ch [req-type next-id (place-add-fields req next-id)]))))
-                  (recur (alts! chans) new-next-id new-id-chan))
+                      (go (>! to-ob-ch [req-type next-id (place-add-fields req next-order-id)]))))
+                  (recur (alts! chans) new-next-id new-id-chan (+ next-order-id 1)))
               (:cancel-req :quote-req :orderbook-req :one-order-status-req)
               (do (if (not (= r-symbol symbol)) 
                     (send-error ch 404 (str "symbol " r-symbol " does not exist on venue " venue))
                     (go (>! router-mg-ch [req-type next-id req])))
-                  (recur (alts! chans) new-next-id new-id-chan))
+                  (recur (alts! chans) new-next-id new-id-chan next-order-id))
               :all-order-status-req
               (do (go (>! router-mg-ch [req-type next-id req]))
-                  (recur (alts! chans) new-next-id new-id-chan)))))
+                  (recur (alts! chans) new-next-id new-id-chan next-order-id)))))
         (= ch mg-router-ch) ;response to an api request
         (let [[req-id resp] msg]
           (send-to-client (id-chan req-id) resp) ;fixes up the json and sends
-          (recur (alts! chans) next-id id-chan))
+          (recur (alts! chans) next-id id-chan next-order-id))
         (= ch error-ch)
         (let [[req-id error-code error-text] msg]
           (send-error (id-chan req-id) error-code error-text)
-          (recur (alts! chans) next-id id-chan))))))
+          (recur (alts! chans) next-id id-chan next-order-id))))))
 
 (defn -main
   [& [venue symbol port]]
