@@ -32,7 +32,7 @@
   (let [venue (-> req :params :venue)
         symbol (-> req :params :stock)]
     (with-channel req channel
-      (go (>! to-router-ch [:cancel-req [(Integer/parseInt (-> req :params :id))] channel
+      (go (>! to-router-ch [:cancel-req (Integer/parseInt (-> req :params :id)) channel
                             venue symbol])))))
 
 (defn orderbook [req]
@@ -150,7 +150,7 @@
 (defn make-router [in-ch mg-router-ch router-mg-ch to-ob-ch error-ch venue symbol]
   ;responsible for maintaining the mapping between response channels and request ids, so
   ;each message goes back to the correct client
-  (let [chans [in-ch mg-router-ch]]
+  (let [chans [in-ch mg-router-ch error-ch]]
     (go-loop [[msg ch] (alts! chans) next-id 0 id-chan {}] ;TODO:  add error chan here
       (cond
         (= ch in-ch) ;new api request
