@@ -15,9 +15,6 @@
 ;orderbook responsibilities, for place/cancel:
 ;qty, fills, open, totalFilled, maintain orderbook, dispatch to exec ws
 
-;(def *venue* "TESTEX") ;these should probably be arguments
-;(def *symbol* "FOOBAR")
-
 (defn update-all-orders [all-orders new-order changed-orders]
   (let [with-new-order (assoc all-orders (new-order :id) new-order)]
     (if (not (= changed-orders []))
@@ -29,21 +26,21 @@
       with-new-order)))
 
 (defn new-half-quote [book]
-  (if (first book)
-    (let [price (first (first book))] ;orders are indexed by [price id]
+  (if (first book) 
+    (let [[[price id] order] (first book)] ;id and order are not used
       (loop [size 0 depth 0 [[cur-price id] {qty :qty}] (first book) next-book (next book)]
         (if next-book
           (recur (if (= price cur-price) (+ size qty) size) 
                  (+ depth qty) (first next-book) (next next-book))
           [price (if (= price cur-price) (+ size qty) size) (+ depth qty)])))
-    [0 0 0]))
+    [nil 0 0]))
 
 (defn update-bid-ask [quote bids asks]
   (let [[bid bidsize biddepth] (new-half-quote bids)
         [ask asksize askdepth] (new-half-quote asks)]
     (assoc quote 
-           :bid bid :bidSize bidsize :bidDepth biddepth
-           :ask ask :askSize asksize :askDepth askdepth)))
+           :bid bid :bidsize bidsize :biddepth biddepth
+           :ask ask :asksize asksize :askdepth askdepth)))
 
 (defn update-quote-trade [quote fills to-quote-ws-ch]
   (if (first fills)
@@ -71,7 +68,7 @@
   (let [orders (mapv all-orders ids)] ;maps are functions of their keys
     {:orders orders :venue venue})) ;it's possible this doesn't need to be a separate function
 
-(defn make-manager [router-mg-ch ob-mg-ch mg-router-ch to-ob-ch to-quote-ws-ch venue symbol]
+(defn make-manager [router-mg-ch ob-mg-ch mg-router-ch to-ob-ch to-quote-ws-ch error-ch venue symbol]
   ;incoming messages to be [req-type req-id actual-message]
   ;responses to be [req-id message]
   (let [chans [router-mg-ch ob-mg-ch]] 
@@ -93,10 +90,14 @@
           (recur (alts! chans) new-all-orders new-accounts-ids new-ids-accounts
                  new-quote new-bids new-asks))
         :cancel-req
-        (let [order (all-orders msg) ;msg must be an order id as a number
-              order-key [(order :price) msg]
-              buy? (= (order :direction) "buy")]
-          (go (>! to-ob-ch [:cancel-req req-id {:buy? buy? :key order-key}]))
+        (let [order (all-orders msg)] ;msg must be an order id as a number
+          (if (not order)
+            (go (>! error-ch [req-id 404 (str "No order with id " msg " exists on venue " venue)]))
+            (let [order-key [(order :price) msg]
+                  buy? (= (order :direction) "buy")]
+              (if (order :open)
+                (go (>! to-ob-ch [:cancel-req req-id {:buy? buy? :key order-key}]))
+                (>! mg-router-ch [req-id order])))) ;intentionally not in a go block
           (recur (alts! chans) all-orders accounts-ids ids-accounts
                  quote bids asks))
         :cancel-resp
@@ -121,9 +122,12 @@
             (recur (alts! chans) all-orders accounts-ids ids-accounts
                    quote bids asks))
         :one-order-status-req
-        (do (go (>! mg-router-ch [req-id (all-orders msg)]))
-            (recur (alts! chans) all-orders accounts-ids ids-accounts
-                   quote bids asks))
+        (let [order (all-orders msg)]
+          (if (not order)
+            (go (>! error-ch [req-id 404 (str "No order with id " msg " exists on venue " venue)]))
+            (go (>! mg-router-ch [req-id order])))
+          (recur (alts! chans) all-orders accounts-ids ids-accounts
+                 quote bids asks))
         :all-order-status-req
         (do (go (let [resp (gen-all-status all-orders (accounts-ids msg))]
                   (>! mg-router-ch [req-id resp])))
