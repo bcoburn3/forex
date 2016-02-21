@@ -25,3 +25,4 @@ Currently no account verification is implemented, and the server is only minimal
   * Add account authentication/verification
   * Add score tracking
   * Add some way to configure venues/symbols
+  * Try multimethods instead of case statements
