@@ -24,5 +24,5 @@ Currently no account verification is implemented, and the server is only minimal
   * Add websockets
   * Add account authentication/verification
   * Add score tracking
-  * Add some way to configure venues/symbols
+  * ~~Add some way to configure venues/symbols~~
   * Try multimethods instead of case statements
