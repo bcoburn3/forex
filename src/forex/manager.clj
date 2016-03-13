@@ -30,9 +30,9 @@
     (let [[[price id] order] (first book)] ;id and order are not used
       (loop [size 0 depth 0 [[cur-price id] {qty :qty}] (first book) next-book (next book)]
         (if next-book
-          (recur (if (= price cur-price) (+ size qty) size) 
-                 (+ depth qty) (first next-book) (next next-book))
-          [price (if (= price cur-price) (+ size qty) size) (+ depth qty)])))
+          (recur (if (= price cur-price) (+' size qty) size) 
+                 (+' depth qty) (first next-book) (next next-book))
+          [price (if (= price cur-price) (+' size qty) size) (+' depth qty)])))
     [nil 0 0]))
 
 (defn update-bid-ask [quote bids asks]
@@ -52,7 +52,7 @@
           fills))
     quote))
 
-(defn gen-ob [bids asks venue symbol]
+(defn gen-ob [bids asks venue symb]
   (let [resp-bids (if (first bids)
                (mapv (fn [[key order]] {:price (order :price) :qty (order :qty) :isbuy true})
                      bids)
@@ -62,19 +62,19 @@
                      asks)
                nil)]
     {:bids resp-bids :asks resp-asks :ts (get-timestamp)
-     :venue venue :symbol symbol}))
+     :venue venue :symbol symb}))
     
 
 (defn gen-all-status [all-orders ids venue]
   (let [orders (mapv all-orders ids)] ;maps are functions of their keys
     {:orders orders :venue venue})) ;it's possible this doesn't need to be a separate function
 
-(defn make-manager [router-mg-ch ob-mg-ch mg-router-ch to-ob-ch to-quote-ws-ch error-ch venue symbol]
+(defn make-manager [router-mg-ch ob-mg-ch mg-router-ch to-ob-ch to-quote-ws-ch error-ch venue symb]
   ;incoming messages to be [req-type req-id actual-message]
   ;responses to be [req-id message]
   (let [chans [router-mg-ch ob-mg-ch]] 
     (go-loop [[[req-type req-id msg]] (alts! chans) all-orders {} accounts-ids {} ids-accounts {}
-              quote {:bidsize 0 :biddepth 0 :asksize 0 :askdepth 0 :venue venue :symbol symbol} 
+              quote {:bidsize 0 :biddepth 0 :asksize 0 :askdepth 0 :venue venue :symbol symb} 
               bids (sorted-map) asks (sorted-map)]
       (case req-type 
         :place-resp
@@ -119,7 +119,7 @@
             (recur (alts! chans) all-orders accounts-ids ids-accounts
                    quote bids asks))
         :orderbook-req
-        (do (go (>! mg-router-ch [req-id (gen-ob bids asks venue symbol)]))
+        (do (go (>! mg-router-ch [req-id (gen-ob bids asks venue symb)]))
             (recur (alts! chans) all-orders accounts-ids ids-accounts
                    quote bids asks))
         :one-order-status-req
