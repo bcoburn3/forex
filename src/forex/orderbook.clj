@@ -36,7 +36,7 @@
   (let [res (assoc order
                    :open open?
                    :fills (conj (order :fills) fill)
-                   :totalfilled (+ (order :totalfilled) fill-qty)
+                   :totalfilled (+' (order :totalfilled) fill-qty)
                    :qty (- (order :qty) fill-qty))]
     res))
 
@@ -97,7 +97,6 @@
                                  :qty rem-qty
                                  :totalfilled (- qty rem-qty)
                                  :fills fills)]
-            ;(println changed-orders)
             (if (> rem-qty 0)
               (case order-type
                 "limit" 
