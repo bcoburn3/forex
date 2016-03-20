@@ -39,7 +39,6 @@
       (name k))))
 
 (defn send-to-client [ch msg]
-  (clojure.pprint/pprint msg)
   (send! ch {:status 200
                :headers {"Content-Type" "application/json; charset=utf-8"}
                :body (json/write-str (assoc msg :ok true)
@@ -60,7 +59,8 @@
                    ~'symb (-> ~'req :params :stock)  ;at both symb and venue
                    ~key-symb (or ((~'req :headers) "x-starfighter-authorization")   ;-> macro doesn't work here
                                  ((~'req :headers) "x-stockfighter-authorization")) ;don't know why
-                   ~body-symb ~body-expr])))))) ;body must be last for silly hack in place-order to work
+                   ~body-symb ~body-expr] ;body must be last for silly hack in place-order to work
+               (>! to-venue-manager-ch [~req-type ~body-symb ~'channel ~'venue ~'symb ~key-symb])))))))
 
 (def-req-handler place-order :place-req
   (let [body (try (json/read-str (slurp (-> req :body))
@@ -118,8 +118,8 @@
   (cc/GET "/ob/api/venues/:venue/accounts/:account/stocks/:stock/orders"
           [venue account stock]
           all-order-status)
-  (cc/GET "/ob/api/ws/:account/venues/:venue/tickertape"
-          [account venue]
+  (cc/GET "/ob/api/ws/:account/venues/:venue/tickertape/stocks/:stock"
+          [account venue stock]
           ws-quotes-connect)
 
 
@@ -137,7 +137,7 @@
     (send-error ch 400 "Missing field, one of direction, qty, account, orderType, price") ;send-error returns nil
     (let [qty (order :qty)
           price (order :price)]
-      (cond (not (contains cf/accounts (order :account)))
+      (cond (not (contains? cf/accounts (order :account)))
             (send-error ch 200 "that account does not exist on this venue")
             (not (= r-key (cf/accounts (order :account))))
             (send-error ch 200 "you are not authorized to post orders for that account")
@@ -216,9 +216,10 @@
         ob-mg-ch (chan 100)
         to-ob-ch (chan 100)
         error-ch (chan 100)
-        to-quote-ws-ch (chan (a/sliding-buffer 100)) ;not implemented
+        to-quote-ws-ch (chan 100)
         to-exec-ws-ch (chan (a/dropping-buffer 1))] ;not implemented
     (make-router to-router-ch mg-router-ch router-mg-ch to-ob-ch to-quote-ws-ch error-ch venue symb)
+    (make-quote-ws to-quote-ws-ch)
     (mg/make-manager router-mg-ch ob-mg-ch mg-router-ch to-ob-ch to-quote-ws-ch error-ch venue symb)
     (ob/make-orderbook to-ob-ch ob-mg-ch to-exec-ws-ch mg-router-ch)
     (println (str "services started for venue " venue ", symbol " symb))))
@@ -241,9 +242,11 @@
 (defn make-venue-manager [venue-symb-map]
   (let [venue-ch-map (make-venues venue-symb-map)]
     (go-loop [msg (<! to-venue-manager-ch)]
-      (let [{venue 3 symb 4} msg
+      (let [{client-ch 2 venue 3 symb 4} msg
             ch (venue-ch-map [venue symb])]
-        (>! ch msg)
+        (if ch
+          (>! ch msg)
+          (send-error client-ch 404 (str "invalid venue or symbol, one of venue " venue " or symbol " symb " does not exist")))
         (recur (<! to-venue-manager-ch))))))
 
 (defn -main
